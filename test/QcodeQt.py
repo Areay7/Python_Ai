@@ -102,7 +102,7 @@ class QRCodeThread(QThread):
 
         draw.text(text_position, self.file_name, font=font, fill="black")
 
-        save_path = os.path.join(self.generate_path, f"{self.file_name}.png")
+        save_path = os.path.join(self.generate_path, f"{self.file_name}.jpg")
         qr_img.save(save_path)
         print(f"二维码已生成至：{save_path}")
 

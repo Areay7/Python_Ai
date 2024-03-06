@@ -1,89 +1,120 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QListWidget, QLineEdit, QMessageBox
+import threading
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QMessageBox
+from PyQt5.QtCore import pyqtSignal, QObject
 
-class FileRenameApp(QWidget):
+class Communicate(QObject):
+    finished = pyqtSignal(bool)
+
+class RenameThread(threading.Thread):
+    def __init__(self, path, match_rule1, replace_with1, match_rule2, replace_with2, output_path, parent=None):
+        super(RenameThread, self).__init__(parent)
+        self.path = path
+        self.match_rule1 = match_rule1
+        self.replace_with1 = replace_with1
+        self.match_rule2 = match_rule2
+        self.replace_with2 = replace_with2
+        self.output_path = output_path
+        self.communicate = Communicate()
+
+    def run(self):
+        try:
+            for filename in os.listdir(self.path):
+                new_name = filename.replace(self.match_rule1, self.replace_with1)
+                new_name = new_name.replace(self.match_rule2, self.replace_with2)
+                old_file_path = os.path.join(self.path, filename)
+                new_file_path = os.path.join(self.output_path, new_name)
+                os.rename(old_file_path, new_file_path)
+            self.communicate.finished.emit(True)
+        except Exception as e:
+            self.communicate.finished.emit(False)
+
+
+class BatchRenameApp(QWidget):
     def __init__(self):
         super().__init__()
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('文件重命名工具')
-        self.setGeometry(100, 100, 600, 400)
-
+        self.setWindowTitle('批量重命名工具')
         layout = QVBoxLayout()
 
-        self.btn_select_files = QPushButton('选择文件')
-        self.btn_select_files.clicked.connect(self.selectFiles)
-        layout.addWidget(self.btn_select_files)
+        self.path_label = QLabel('路径:')
+        layout.addWidget(self.path_label)
+        self.path_input = QLineEdit()
+        layout.addWidget(self.path_input)
+        self.path_button = QPushButton('选择路径')
+        self.path_button.clicked.connect(self.choosePath)
+        layout.addWidget(self.path_button)
 
-        self.file_list = QListWidget()
-        layout.addWidget(self.file_list)
+        self.match_rule1_label = QLabel('匹配规则1:')
+        layout.addWidget(self.match_rule1_label)
+        self.match_rule1_input = QLineEdit()
+        layout.addWidget(self.match_rule1_input)
 
-        self.filter_layout = QHBoxLayout()
-        self.lbl_new_suffix = QLabel('新文件后缀名前三个字符:')
-        self.filter_layout.addWidget(self.lbl_new_suffix)
-        self.txt_new_suffix = QLineEdit()
-        self.filter_layout.addWidget(self.txt_new_suffix)
-        layout.addLayout(self.filter_layout)
+        self.replace_with1_label = QLabel('替换为1:')
+        layout.addWidget(self.replace_with1_label)
+        self.replace_with1_input = QLineEdit()
+        layout.addWidget(self.replace_with1_input)
 
-        self.lbl_filter_words = QLabel('过滤单词（用,分隔）:')
-        layout.addWidget(self.lbl_filter_words)
+        self.match_rule2_label = QLabel('匹配规则2:')
+        layout.addWidget(self.match_rule2_label)
+        self.match_rule2_input = QLineEdit()
+        layout.addWidget(self.match_rule2_input)
 
-        self.txt_filter_words = QLineEdit()
-        layout.addWidget(self.txt_filter_words)
+        self.replace_with2_label = QLabel('替换为2:')
+        layout.addWidget(self.replace_with2_label)
+        self.replace_with2_input = QLineEdit()
+        layout.addWidget(self.replace_with2_input)
 
-        self.btn_rename = QPushButton('重命名文件')
-        self.btn_rename.clicked.connect(self.renameFiles)
-        layout.addWidget(self.btn_rename)
+        self.output_path_label = QLabel('输出路径:')
+        layout.addWidget(self.output_path_label)
+        self.output_path_input = QLineEdit()
+        layout.addWidget(self.output_path_input)
+        self.output_path_button = QPushButton('选择输出路径')
+        self.output_path_button.clicked.connect(self.chooseOutputPath)
+        layout.addWidget(self.output_path_button)
+
+        self.confirm_button = QPushButton('确认转换')
+        self.confirm_button.clicked.connect(self.startRenameThread)
+        layout.addWidget(self.confirm_button)
 
         self.setLayout(layout)
 
-    def selectFiles(self):
-        files, _ = QFileDialog.getOpenFileNames(self, '选择文件', '')
-        if files:
-            self.file_list.clear()
-            self.file_list.addItems(files)
+    def choosePath(self):
+        directory = QFileDialog.getExistingDirectory(self, '选择路径')
+        self.path_input.setText(directory)
 
-    def renameFiles(self):
-        if self.file_list.count() == 0:
-            QMessageBox.warning(self, '警告', '请先选择文件')
+    def chooseOutputPath(self):
+        directory = QFileDialog.getExistingDirectory(self, '选择输出路径')
+        self.output_path_input.setText(directory)
+
+    def startRenameThread(self):
+        path = self.path_input.text()
+        match_rule1 = self.match_rule1_input.text()
+        replace_with1 = self.replace_with1_input.text()
+        match_rule2 = self.match_rule2_input.text()
+        replace_with2 = self.replace_with2_input.text()
+        output_path = self.output_path_input.text()
+        if not os.path.exists(path):
+            QMessageBox.warning(self, '警告', '路径不存在！')
             return
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+        thread = RenameThread(path, match_rule1, replace_with1, match_rule2, replace_with2, output_path)
+        thread.communicate.finished.connect(self.showMessageBox)
+        thread.start()
 
-        new_suffix_prefix = self.txt_new_suffix.text().strip()
-        if len(new_suffix_prefix) != 3:
-            QMessageBox.warning(self, '警告', '新文件后缀名前三个字符长度必须为3')
-            return
+    def showMessageBox(self, success):
+        if success:
+            QMessageBox.information(self, '提示', '转换成功')
+        else:
+            QMessageBox.critical(self, '错误', '转换失败')
 
-        filter_words = self.txt_filter_words.text().split(',')
-        filter_words = [word.strip() for word in filter_words if word.strip()]
-
-        for i in range(self.file_list.count()):
-            file_path = self.file_list.item(i).text()
-            file_name, file_extension = os.path.splitext(os.path.basename(file_path))
-            if len(file_extension) < 3:
-                QMessageBox.warning(self, '警告', '不是有效的文件')
-                continue
-
-            file_name_parts = file_name.split('.')
-            new_file_name_parts = []
-            for part in file_name_parts:
-                if part in filter_words:
-                    new_file_name_parts.append(part)
-                else:
-                    new_file_name_parts.append(part[:-3] + new_suffix_prefix)
-            new_file_name = '.'.join(new_file_name_parts) + file_extension
-
-            try:
-                os.rename(file_path, os.path.join(os.path.dirname(file_path), new_file_name))
-            except Exception as e:
-                QMessageBox.critical(self, '错误', f'重命名文件失败: {e}')
-                return
-
-        QMessageBox.information(self, '提示', '文件重命名成功')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    ex = FileRenameApp()
-    ex.show()
+    window = BatchRenameApp()
+    window.show()
     sys.exit(app.exec_())
