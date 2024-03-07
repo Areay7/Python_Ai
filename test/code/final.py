@@ -357,8 +357,6 @@ class ImageOverlayApp(QWidget):
         self.output_text.append(f'执行命令: {ffmpeg_cmd}')
         os.system(ffmpeg_cmd)
 
-        os.system(ffmpeg_cmd)
-
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = ImageOverlayApp()

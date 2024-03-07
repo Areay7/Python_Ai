@@ -58,7 +58,7 @@ class QRCodeThread(QThread):
             qr_img = qr_img.resize((self.qr_size, self.qr_size))
 
             draw = ImageDraw.Draw(qr_img)
-            font_path = "C:\Windows\Fonts\simsun.ttc"
+            font_path = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
             font = ImageFont.truetype(font_path, self.font_size)
             text_width, text_height = draw.textsize(file_name, font=font)
 
@@ -79,6 +79,7 @@ class ImageOverlayApp(QWidget):
         super().__init__()
         self.initUI()
         self.threads = []
+        self.overlay_count = 0  # 新增成功叠加次数的计数器
 
     def initUI(self):
         self.setWindowTitle('批量重命名工具、二维码生成器和图片叠加工具')
@@ -326,9 +327,11 @@ class ImageOverlayApp(QWidget):
             self.output_text.append('请选择文件夹')
             return
 
-        if not self.output_path:
+        if not self.output_path:  # 使用正确的属性名
             self.output_text.append('请选择输出路径')
             return
+
+        self.successful_overlays = 0  # 每次开始新的叠加任务前，重置成功叠加次数为0
 
         for match_input, x_input, y_input in self.input_layouts:
             match_text = match_input.text()
@@ -366,7 +369,7 @@ class ImageOverlayApp(QWidget):
         for thread in self.threads:
             thread.join()
 
-        self.output_text.append('图片叠加完成')
+        self.output_text.append(f'成功完成 {self.successful_overlays} 次叠加')
 
     def processImages(self, first_image_path, second_image_path, x_offset, y_offset, output_file_path):
         # 获取第一张图片的文件名（不含路径和后缀）
@@ -374,9 +377,12 @@ class ImageOverlayApp(QWidget):
         # 构建FFmpeg命令，将第二张图片叠加在第一张图片上，并指定输出文件名为第一张图片的文件名
         ffmpeg_cmd = f'ffmpeg -y -i {first_image_path} -i {second_image_path} -filter_complex "overlay={x_offset}:{y_offset}" -c:v mjpeg -q:v 2 {first_image_path}'
         self.output_text.append(f'执行命令: {ffmpeg_cmd}')
-        os.system(ffmpeg_cmd)
+        result = os.system(ffmpeg_cmd)  # 执行FFmpeg命令
 
-        os.system(ffmpeg_cmd)
+        # 检查FFmpeg命令执行结果，如果成功则增加成功叠加次数计数器
+        if result == 0:
+            self.successful_overlays += 1
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
