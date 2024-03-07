@@ -2,7 +2,7 @@ import sys
 import os
 import threading
 import qrcode
-from PyQt5.QtWidgets import QProgressBar, QSizePolicy
+from PyQt5.QtWidgets import QProgressBar, QSizePolicy, QComboBox
 from PIL import Image, ImageDraw, ImageFont
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QMessageBox, QTextEdit, QHBoxLayout
 from PyQt5.QtCore import pyqtSignal, QObject, Qt, QThread
@@ -77,8 +77,11 @@ class QRCodeThread(QThread):
 class ImageOverlayApp(QWidget):
     def __init__(self):
         super().__init__()
+        # 历史记录的存储
+        self.history = {'match': [''] * 9, 'x_offset': [''] * 9, 'y_offset': [''] * 9}
         self.initUI()
         self.threads = []
+
 
     def initUI(self):
         self.setWindowTitle('批量重命名工具、二维码生成器和图片叠加工具')
@@ -183,7 +186,8 @@ class ImageOverlayApp(QWidget):
         self.folder_button.clicked.connect(self.getFolderPath)
         right_layout.addWidget(self.folder_button)
 
-        self.input_layouts = []
+        # 修改匹配字符和偏移值输入部分
+        self.input_combos = []
         for i in range(9):
             input_layout = QHBoxLayout()
             right_layout.addLayout(input_layout)
@@ -191,22 +195,32 @@ class ImageOverlayApp(QWidget):
             match_label = QLabel(f'匹配字符{i + 1}:')
             input_layout.addWidget(match_label)
 
-            match_input = QLineEdit()
+            match_input = QComboBox()  # 使用QComboBox保存历史记录
+            match_input.setEditable(True)  # 设置为可编辑
+            match_input.lineEdit().setPlaceholderText("输入匹配字符")
+            match_input.setFixedWidth(200)  # 设置固定宽度
+            match_input.lineEdit().returnPressed.connect(
+                lambda x, combo=match_input: self.saveHistory('match', combo.currentText()))
+            match_input.addItems(self.history['match'])  # 添加历史记录
             input_layout.addWidget(match_input)
 
             x_label = QLabel('输入 x 轴偏移值:')
             input_layout.addWidget(x_label)
 
             x_input = QLineEdit()
+            x_input.setPlaceholderText("输入x偏移值")
+            x_input.returnPressed.connect(lambda: self.saveHistory('x_offset', x_input.text()))
             input_layout.addWidget(x_input)
 
             y_label = QLabel('输入 y 轴偏移值:')
             input_layout.addWidget(y_label)
 
             y_input = QLineEdit()
+            y_input.setPlaceholderText("输入y偏移值")
+            y_input.returnPressed.connect(lambda: self.saveHistory('y_offset', y_input.text()))
             input_layout.addWidget(y_input)
 
-            self.input_layouts.append((match_input, x_input, y_input))
+            self.input_combos.append((match_input, x_input, y_input))
 
         self.output_label = QLabel('选择输出路径:')
         right_layout.addWidget(self.output_label)
@@ -225,6 +239,12 @@ class ImageOverlayApp(QWidget):
 
         self.setLayout(layout)
         self.folder_path = None
+
+        # 历史记录保存方法
+    def saveHistory(self, key, value):
+        if len(self.history[key]) == 9:
+            self.history[key].pop(0)
+        self.history[key].append(value)
 
     def renameFinished(self, success):
         if success:
@@ -302,6 +322,7 @@ class ImageOverlayApp(QWidget):
         directory = QFileDialog.getExistingDirectory(self, '选择输出路径')
         self.output_path = directory
 
+    # 修改图片叠加工具部分的代码，确保正确引用输入布局的列表
     def overlayImages(self):
         if not self.folder_path:
             self.output_text.append('请选择文件夹')
@@ -311,8 +332,8 @@ class ImageOverlayApp(QWidget):
             self.output_text.append('请选择输出路径')
             return
 
-        for match_input, x_input, y_input in self.input_layouts:
-            match_text = match_input.text()
+        for match_input, x_input, y_input in self.input_combos:  # 修正此处的属性名为 input_combos
+            match_text = match_input.currentText()  # 使用 currentText 方法获取当前文本
             x_offset = x_input.text()
             y_offset = y_input.text()
 
@@ -351,9 +372,9 @@ class ImageOverlayApp(QWidget):
 
     def processImages(self, first_image_path, second_image_path, x_offset, y_offset, output_file_path):
         # 获取第一张图片的文件名（不含路径和后缀）
-        first_image_name = os.path.splitext(os.path.basename(first_image_path))[0]
+        first_image_name = os.path.splitext(os.path.basename(first_image_path))[1]
         # 构建FFmpeg命令，将第二张图片叠加在第一张图片上，并指定输出文件名为第一张图片的文件名
-        ffmpeg_cmd = f'ffmpeg -i {first_image_path} -i {second_image_path} -filter_complex "overlay={x_offset}:{y_offset}" {os.path.join(os.path.dirname(output_file_path), first_image_name + os.path.splitext(second_image_path)[1])}'
+        ffmpeg_cmd = f'ffmpeg -y -i {first_image_path} -i {second_image_path} -filter_complex "overlay={x_offset}:{y_offset}" -c:v mjpeg -q:v 2 {first_image_path}'
         self.output_text.append(f'执行命令: {ffmpeg_cmd}')
         os.system(ffmpeg_cmd)
 
@@ -364,3 +385,4 @@ if __name__ == '__main__':
     window = ImageOverlayApp()
     window.show()
     sys.exit(app.exec_())
+
