@@ -2,6 +2,7 @@ import sys
 import os
 import threading
 import qrcode
+import subprocess
 from PyQt5.QtWidgets import QProgressBar, QSizePolicy
 from PIL import Image, ImageDraw, ImageFont
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QMessageBox, QTextEdit, QHBoxLayout
@@ -24,8 +25,8 @@ class RenameThread(threading.Thread):
     def run(self):
         try:
             for filename in os.listdir(self.path):
-                new_name = filename.replace(self.match_rule1, self.replace_with1)
-                new_name = new_name.replace(self.match_rule2, self.replace_with2)
+                new_name = filename.replace(self.match_rule1, self.replace_with1 if self.replace_with1 else "")
+                new_name = new_name.replace(self.match_rule2, self.replace_with2 if self.replace_with2 else "")
                 old_file_path = os.path.join(self.path, filename)
                 new_file_path = os.path.join(self.output_path, new_name)
                 os.rename(old_file_path, new_file_path)
@@ -58,7 +59,7 @@ class QRCodeThread(QThread):
             qr_img = qr_img.resize((self.qr_size, self.qr_size))
 
             draw = ImageDraw.Draw(qr_img)
-            font_path = "C:\Windows\Fonts\simsun.ttc"
+            font_path = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
             font = ImageFont.truetype(font_path, self.font_size)
             text_width, text_height = draw.textsize(file_name, font=font)
 
@@ -79,6 +80,7 @@ class ImageOverlayApp(QWidget):
         super().__init__()
         self.initUI()
         self.threads = []
+        self.overlay_count = 0  # 新增成功叠加次数的计数器
 
     def initUI(self):
         self.setWindowTitle('批量重命名工具、二维码生成器和图片叠加工具')
@@ -183,6 +185,11 @@ class ImageOverlayApp(QWidget):
         self.folder_button.clicked.connect(self.getFolderPath)
         right_layout.addWidget(self.folder_button)
 
+        # Add import from txt button
+        self.import_button = QPushButton('从txt文件导入')
+        self.import_button.clicked.connect(self.importFromTxt)
+        right_layout.addWidget(self.import_button)
+
         self.input_layouts = []
         for i in range(9):
             input_layout = QHBoxLayout()
@@ -226,13 +233,27 @@ class ImageOverlayApp(QWidget):
         self.setLayout(layout)
         self.folder_path = None
 
+    def importFromTxt(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择txt文件", "", "Text Files (*.txt)", options=options)
+        if file_path:
+            with open(file_path, 'r') as file:
+                lines = file.readlines()
+                for line, inputs in zip(lines, self.input_layouts):
+                    match_input, x_input, y_input = inputs
+                    data = line.strip().split()
+                    if len(data) == 3:
+                        match_input.setText(data[0])
+                        x_input.setText(data[1])
+                        y_input.setText(data[2])
+
     def renameFinished(self, success):
         if success:
             QMessageBox.information(self, "提示", "批量重命名完成")
         else:
             QMessageBox.warning(self, "警告", "批量重命名失败")
 
-    def confirmRename(self):  # 确保方法名称正确
+    def confirmRename(self):
         path = self.path_input.text()
         match_rule1 = self.match_rule1_input.text()
         replace_with1 = self.replace_with1_input.text()
@@ -240,8 +261,8 @@ class ImageOverlayApp(QWidget):
         replace_with2 = self.replace_with2_input.text()
         output_path = self.output_path_input.text()
 
-        if not all([path, match_rule1, replace_with1, match_rule2, replace_with2, output_path]):
-            QMessageBox.warning(self, "警告", "请填写所有字段")
+        if not path or not match_rule1 or not match_rule2 or not output_path:
+            QMessageBox.warning(self, "警告", "请填写路径、匹配规则和输出路径字段")
             return
 
         thread = RenameThread(path, match_rule1, replace_with1, match_rule2, replace_with2, output_path)
@@ -300,16 +321,19 @@ class ImageOverlayApp(QWidget):
 
     def getOutputPath(self):
         directory = QFileDialog.getExistingDirectory(self, '选择输出路径')
-        self.output_path = directory
+        if directory:
+            self.output_path = directory
 
     def overlayImages(self):
         if not self.folder_path:
             self.output_text.append('请选择文件夹')
             return
 
-        if not self.output_path:
+        if not hasattr(self, 'output_path') or not self.output_path:
             self.output_text.append('请选择输出路径')
             return
+
+        self.successful_overlays = 0  # 每次开始新的叠加任务前，重置成功叠加次数为0
 
         for match_input, x_input, y_input in self.input_layouts:
             match_text = match_input.text()
@@ -347,7 +371,7 @@ class ImageOverlayApp(QWidget):
         for thread in self.threads:
             thread.join()
 
-        self.output_text.append('图片叠加完成')
+        self.output_text.append(f'成功完成 {self.successful_overlays} 次叠加')
 
     def processImages(self, first_image_path, second_image_path, x_offset, y_offset, output_file_path):
         # 获取第一张图片的文件名（不含路径和后缀）
@@ -355,11 +379,17 @@ class ImageOverlayApp(QWidget):
         # 构建FFmpeg命令，将第二张图片叠加在第一张图片上，并指定输出文件名为第一张图片的文件名
         ffmpeg_cmd = f'ffmpeg -y -i {first_image_path} -i {second_image_path} -filter_complex "overlay={x_offset}:{y_offset}" -c:v mjpeg -q:v 2 {first_image_path}'
         self.output_text.append(f'执行命令: {ffmpeg_cmd}')
-        os.system(ffmpeg_cmd)
+
+        # 使用 subprocess 执行命令，shell 参数设置为 True，表示在 shell 中执行命令
+        result = subprocess.run(ffmpeg_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # 检查FFmpeg命令执行结果，如果成功则增加成功叠加次数计数器
+        if result.returncode == 0:
+            self.successful_overlays += 1
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = ImageOverlayApp()
     window.show()
     sys.exit(app.exec_())
-
