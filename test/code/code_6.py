@@ -402,10 +402,10 @@ class ImageOverlayApp(QWidget):
         self.output_text.append(f'成功完成 {self.successful_overlays} 次叠加')
 
         # # 删除输出路径选择的文件夹下的所有.jpg文件
-        # for filename in os.listdir(self.output_path):
-        #     if filename.endswith('.jpg'):
-        #         file_path = os.path.join(self.output_path, filename)
-        #         os.remove(file_path)
+        for filename in os.listdir(self.output_path):
+            if filename.endswith('.jpg'):
+                file_path = os.path.join(self.output_path, filename)
+                os.remove(file_path)
 
     def storeMatchRulesAndOffsets(self):
         for match_input, x_input, y_input in self.input_layouts:
